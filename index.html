@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>동화 질문 만들기 놀이</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        /* 3D 카드 뒤집기 애니메이션을 위한 커스텀 CSS */
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        
+        /* 버튼 스타일 */
+        .btn-pink { background: linear-gradient(145deg, #ff9a9e, #ff7eb3); box-shadow: 0 5px 0 #e05e83; }
+        .btn-blue { background: linear-gradient(145deg, #84c1ff, #62b1f6); box-shadow: 0 5px 0 #3b8fd9; }
+        
+        /* 스크롤바 숨기기 */
+        ::-webkit-scrollbar { display: none; }
+
+        /* 16:9 전자칠판 반응형 및 캡처 비율 고정용 CSS */
+        .board-container {
+            aspect-ratio: 16 / 9 !important;
+            max-width: 100%;
+            max-height: 100%;
+        }
+        @media (min-aspect-ratio: 16/9) {
+            .board-container { width: auto; height: 100%; }
+        }
+        @media (max-aspect-ratio: 16/9) {
+            .board-container { width: 100%; height: auto; }
+        }
+
+        /* 화면 캡처 시 html2canvas 3D 글자 반전 버그 방지용 CSS */
+        .capture-mode .transform-style-3d,
+        .capture-mode .rotate-y-180 {
+            transform: none !important;
+            transition: none !important;
+        }
+        .capture-mode .transform-style-3d.rotate-y-180 > div:first-child { display: none !important; }
+        .capture-mode .transform-style-3d:not(.rotate-y-180) > div:last-child { display: none !important; }
+
+        /* contenteditable div placeholder 스타일 */
+        [contenteditable]:empty:before {
+            content: attr(placeholder);
+            color: #9ca3af;
+            pointer-events: none;
+            display: block;
+        }
+    </style>
+</head>
+<body class="bg-indigo-950 h-screen w-screen flex items-center justify-center p-2 md:p-4 overflow-hidden font-sans">
+
+    <!-- 16:9 비율 유지용 메인 컨테이너 (저장 시 영역 지정 ID) -->
+    <div id="capture-area" class="relative board-container bg-[#FFFDF6] rounded-[32px] shadow-2xl p-4 md:p-5 flex flex-col border-[8px] md:border-[10px] border-[#FFE9A3] overflow-hidden">
+        
+        <!-- 파티클 효과용 캔버스 -->
+        <canvas id="confetti-canvas" class="absolute inset-0 pointer-events-none z-40"></canvas>
+
+        <!-- 상단 헤더 -->
+        <header class="grid grid-cols-[auto_1fr_auto] items-center gap-4 mb-4 z-10 w-full">
+            <div class="justify-self-start flex items-center gap-2 bg-yellow-100/90 px-3 py-1.5 md:py-2 rounded-xl border border-yellow-200 shadow-sm whitespace-nowrap">
+                <span class="text-sm md:text-base font-extrabold text-amber-800">📖 동화 골라보기:</span>
+                <select id="preset-select" onchange="loadPreset()" class="bg-white border-2 border-amber-300 text-amber-950 text-sm md:text-base font-black rounded-lg px-2 py-1 cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    <option value="pig">아기 돼지 삼형제</option>
+                    <option value="sunmoon">해와 달이 된 오누이</option>
+                    <option value="rabbit">토끼와 자라</option>
+                    <option value="heungbu">흥부와 놀부</option>
+                    <option value="goldaxe">금도끼 은도끼</option>
+                    <option value="redhood">빨간 모자</option>
+                    <option value="cinderella">신데렐라</option>
+                    <option value="uglyduck">미운 오리 새끼</option>
+                    <option value="pinocchio">피노키오</option>
+                    <option value="jjack">잭과 콩나무</option>
+                    <option value="custom">✏️ 직접 입력</option>
+                </select>
+            </div>
+
+            <div class="text-center justify-self-center min-w-0 max-w-full flex items-center justify-center gap-2">
+                <h1 class="text-base md:text-lg lg:text-xl xl:text-2xl font-black text-[#603813] flex items-center">
+                    <span class="bg-amber-100 text-amber-900 px-4 py-1.5 rounded-full border border-amber-200 truncate">
+                        동화 질문 만들기 놀이
+                    </span>
+                </h1>
+                <button type="button" onclick="showHelpModal()" class="w-7 h-7 md:w-8 md:h-8 flex items-center justify-center bg-amber-500 text-white rounded-full text-sm md:text-base font-black hover:bg-amber-600 transition-transform hover:scale-110 active:scale-95 shadow-md" title="놀이 설명">
+                    ?
+                </button>
+            </div>
+
+            <div class="justify-self-end"></div>
+        </header>
+
+        <!-- 중앙 놀이 영역 -->
+        <main class="flex-1 flex flex-row gap-4 md:gap-5 mb-4 h-full min-h-0">
+            <!-- 좌측: 이야기 단어 카드 -->
+            <div class="flex-1 flex flex-col min-w-0">
+                <div class="text-center mb-2">
+                    <span class="bg-pink-100 text-pink-700 border-2 border-pink-200 font-black text-sm md:text-base lg:text-lg px-4 py-1 rounded-full shadow-sm inline-block whitespace-nowrap">🌸 이야기 속 등장 단어 🌸</span>
+                </div>
+                <div class="flex-1 grid grid-cols-2 grid-rows-3 gap-2 md:gap-3" id="pink-container"></div>
+            </div>
+
+            <!-- 중앙: 책 표지 업로드 -->
+            <div class="w-[26%] md:w-[28%] flex flex-col items-center justify-center bg-teal-50/60 border-4 border-dashed border-teal-300 rounded-[24px] relative p-3 md:p-4 shadow-inner transition-colors hover:bg-teal-50">
+                <input type="file" id="image-upload" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" onchange="previewImage(event)">
+                <div id="upload-placeholder" class="text-center flex flex-col items-center pointer-events-none p-1 md:p-2 w-full">
+                    <div class="w-12 h-12 md:w-16 md:h-16 lg:w-20 lg:h-20 bg-teal-100 rounded-full flex items-center justify-center mb-2 md:mb-3 shadow-md text-teal-600">
+                        <svg class="w-6 h-6 md:w-8 md:h-8 lg:w-10 lg:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>
+                    </div>
+                    <p class="text-base md:text-xl lg:text-2xl font-black text-teal-800 break-keep">책 표지 올리기</p>
+                </div>
+                <img id="book-cover" src="#" alt="책 표지" class="hidden w-full h-full object-contain rounded-xl z-0 shadow-md">
+                <button type="button" id="remove-img-btn" onclick="removeImage()" class="hidden absolute top-2 right-2 md:top-3 md:right-3 z-20 bg-red-500 hover:bg-red-600 text-white rounded-full p-1.5 md:p-2 shadow-lg transition-transform hover:scale-110 active:scale-95">
+                    <svg class="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <!-- 우측: 질문 단어 카드 -->
+            <div class="flex-1 flex flex-col min-w-0">
+                <div class="text-center mb-2">
+                    <span class="bg-blue-100 text-blue-700 border-2 border-blue-200 font-black text-sm md:text-base lg:text-lg px-4 py-1 rounded-full shadow-sm inline-block whitespace-nowrap">생각을 깨우는 질문 단어</span>
+                </div>
+                <div class="flex-1 grid grid-cols-2 grid-rows-3 gap-2 md:gap-3" id="blue-container"></div>
+            </div>
+        </main>
+
+        <!-- 하단: 기능 영역 -->
+        <div class="mt-auto flex flex-col gap-2 z-10 w-full mb-1">
+            
+            <!-- 1. 단어 입력창 & 시작/가리기 버튼 -->
+            <div class="flex gap-2 items-stretch h-10 md:h-12 justify-end">
+                <div id="input-container" class="flex-grow bg-yellow-50 border-4 border-[#FFE082] rounded-xl px-3 md:px-4 relative flex items-center transition-all duration-300">
+                    <input type="text" id="word-input" class="w-full bg-transparent text-sm md:text-base font-black text-amber-950 placeholder-amber-900/40 focus:outline-none" placeholder="예: 첫째 돼지, 늑대, 벽돌집 (등장 단어만 쉼표로 적어주세요)">
+                </div>
+                <div class="flex gap-1.5 flex-shrink-0">
+                    <button type="button" onclick="startGame()" class="px-3 md:px-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xs md:text-sm rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1"><span>🎮</span> 시작</button>
+                    <button type="button" onclick="resetGame()" class="px-3 md:px-4 bg-amber-400 hover:bg-amber-500 text-white font-black text-xs md:text-sm rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1"><span>🔄</span> 가리기</button>
+                </div>
+            </div>
+
+            <!-- 2. 기록 영역 (마이크, 텍스트, 캡처) -->
+            <div id="stt-container" class="flex gap-2 items-stretch h-16 md:h-20">
+                <button type="button" id="mic-btn" onclick="toggleMic()" class="w-10 md:w-12 bg-rose-400 hover:bg-rose-500 text-white rounded-xl shadow-md flex items-center justify-center text-lg md:text-xl transition-all active:scale-95 flex-shrink-0" title="마이크 켜기/끄기">🎤</button>
+                
+                <div class="flex-grow bg-white border-4 border-gray-200 rounded-xl p-2 md:p-3 flex items-start shadow-inner overflow-hidden">
+                    <div id="stt-result" contenteditable="true" class="w-full h-full bg-transparent text-sm md:text-base font-bold text-gray-700 focus:outline-none overflow-y-auto whitespace-pre-wrap break-words" placeholder="아이들의 이야기를 기록해보세요..."></div>
+                </div>
+                
+                <button type="button" onclick="captureScreen()" class="px-3 md:px-4 bg-indigo-500 hover:bg-indigo-600 text-white font-black text-xs md:text-sm rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1 flex-shrink-0" title="화면 저장"><span>💾</span> 저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 도움말 안내 모달 -->
+    <div id="help-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-[32px] max-w-lg w-full border-[8px] border-amber-300 p-6 shadow-2xl relative">
+            <button type="button" onclick="hideHelpModal()" class="absolute top-4 right-5 text-gray-400 hover:text-gray-600 text-4xl font-black">&times;</button>
+            <h3 class="text-2xl font-black text-amber-950 mb-4 text-center">💡 놀이 설명</h3>
+            <p class="text-gray-700 leading-relaxed text-lg">아이들과 함께 읽은 동화책을 선택하고, 내용을 떠올리며 단어와 질문을 조합해보세요. '시작!' 버튼을 누르면 단어들이 섞이며 놀이가 시작됩니다.</p>
+            <p class="text-rose-500 font-bold mt-4 text-sm md:text-base break-keep">※ 마이크(🎤)를 처음 켤 때 브라우저 권한 '허용'이 필요합니다. 놀이 중간에 허용하면 새로고침 될 수 있으니, <span class="text-rose-600 underline">반드시 놀이 전에 권한을 허용해 주세요!</span></p>
+            <button type="button" onclick="hideHelpModal()" class="mt-6 w-full bg-amber-500 text-white font-black py-3 rounded-xl hover:bg-amber-600">확인</button>
+        </div>
+    </div>
+
+    <!-- 커스텀 알림 모달 -->
+    <div id="alert-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-[24px] max-w-sm w-full border-[6px] border-rose-300 p-6 shadow-2xl text-center transform transition-all scale-95">
+            <div class="w-16 h-16 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4 text-rose-500 text-3xl font-bold">⚠️</div>
+            <h3 class="text-xl font-black text-rose-950 mb-2">앗, 확인해 주세요!</h3>
+            <p id="alert-message" class="text-gray-700 text-base font-semibold mb-6 break-keep"></p>
+            <button type="button" onclick="closeAlertModal()" class="w-full bg-rose-500 hover:bg-rose-600 text-white font-black text-lg py-3 rounded-xl shadow-md active:translate-y-0.5">
+                확인
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const TOTAL_CARDS = 6;
+        let currentPresetQs = ["만약에", "왜", "어떻게", "진짜로", "나라면", "어디로"];
+
+        const presets = {
+            pig: { words: ["첫째 돼지", "둘째 돼지", "셋째 돼지", "늑대", "벽돌집", "굴뚝"], qs: ["만약에", "왜", "어떻게", "진짜로", "나라면", "어디로"] },
+            sunmoon: { words: ["오누이", "호랑이", "동줄", "하늘", "어머니", "수수밭"], qs: ["만약에", "왜", "어떻게", "진짜로", "나라면", "어디로"] },
+            rabbit: { words: ["토끼", "자라", "용왕", "용궁", "간", "바다"], qs: ["왜", "어떻게", "만약에", "진짜로", "무엇을", "나라면"] },
+            heungbu: { words: ["흥부", "놀부", "제비", "박", "부자", "마음"], qs: ["왜", "어떻게", "만약에", "진짜로", "무엇을", "나라면"] },
+            goldaxe: { words: ["나무꾼", "산신령", "연못", "금도끼", "쇠도끼", "정직"], qs: ["만약에", "왜", "어떻게", "진짜로", "나라면", "누가"] },
+            redhood: { words: ["빨간모자", "늑대", "할머니", "사냥꾼", "꽃", "바구니"], qs: ["왜", "어떻게", "만약에", "진짜로", "나라면", "무엇을"] },
+            cinderella: { words: ["신데렐라", "유리구두", "요정", "호박마차", "파티", "열두시"], qs: ["만약에", "왜", "어떻게", "진짜로", "나라면", "언제까지"] },
+            uglyduck: { words: ["오리", "백조", "가족", "연못", "계절", "변신"], qs: ["왜", "어떻게", "만약에", "진짜로", "나라면", "누구인가"] },
+            pinocchio: { words: ["피노키오", "제페토", "코", "거짓말", "요정", "학교"], qs: ["왜", "어떻게", "만약에", "진짜로", "나라면", "무엇을"] },
+            jjack: { words: ["잭", "콩나무", "거인", "황금알", "하늘", "시장"], qs: ["만약에", "왜", "어떻게", "진짜로", "나라면", "어디서"] }
+        };
+
+        // Web Audio API 
+        let audioCtx;
+        function getAudioContext() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            return audioCtx;
+        }
+
+        function playFlipSound() {
+            try {
+                const ctx = getAudioContext();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain); gain.connect(ctx.destination);
+                osc.type = 'sine';
+                const now = ctx.currentTime;
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+                gain.gain.setValueAtTime(0.06, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                osc.start(now); osc.stop(now + 0.1);
+            } catch(e) {}
+        }
+
+        function playSuccessSound() {
+            try {
+                const ctx = getAudioContext();
+                const now = ctx.currentTime;
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + idx * 0.08);
+                    gain.gain.setValueAtTime(0.04, now + idx * 0.08);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.15);
+                    osc.start(now + idx * 0.08); osc.stop(now + idx * 0.08 + 0.15);
+                });
+            } catch(e) {}
+        }
+
+        function showAlert(message) {
+            document.getElementById('alert-message').textContent = message;
+            document.getElementById('alert-modal').classList.remove('hidden');
+        }
+        function closeAlertModal() { document.getElementById('alert-modal').classList.add('hidden'); }
+        function showHelpModal() { document.getElementById('help-modal').classList.remove('hidden'); }
+        function hideHelpModal() { document.getElementById('help-modal').classList.add('hidden'); }
+
+        function createCards(containerId, color) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            for(let i=0; i<TOTAL_CARDS; i++) {
+                container.innerHTML += `
+                    <div class="perspective-1000 cursor-pointer" onclick="this.querySelector('.transform-style-3d').classList.toggle('rotate-y-180'); playFlipSound();">
+                        <div class="relative w-full h-full transition-transform duration-500 transform-style-3d">
+                            <div class="absolute inset-0 ${color} rounded-2xl backface-hidden flex items-center justify-center text-white text-3xl font-black">?</div>
+                            <div class="absolute inset-0 bg-white border-2 border-amber-300 rounded-2xl rotate-y-180 backface-hidden flex items-center justify-center font-black word-text text-lg md:text-xl lg:text-2xl px-1 break-keep text-center text-amber-950"></div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function loadPreset() {
+            const val = document.getElementById('preset-select').value;
+            if(val === 'custom') {
+                document.getElementById('word-input').value = "";
+                document.getElementById('word-input').placeholder = "예: 단어1, 단어2, 단어3 (등장 단어만 쉼표로 적어주세요)";
+                currentPresetQs = ["만약에", "왜", "어떻게", "진짜로", "나라면", "어디로"];
+                document.getElementById('input-container').classList.remove('hidden');
+                return;
+            }
+            document.getElementById('word-input').placeholder = "예: 첫째 돼지, 늑대, 벽돌집 (등장 단어만 쉼표로 적어주세요)";
+            document.getElementById('word-input').value = presets[val].words.join(', ');
+            currentPresetQs = presets[val].qs;
+            document.getElementById('input-container').classList.remove('hidden');
+        }
+
+        function startGame() {
+            const inputVal = document.getElementById('word-input').value;
+            if(!inputVal) {
+                showAlert("단어를 입력하거나 동화를 선택해주세요!");
+                return;
+            }
+            
+            const storyWords = inputVal.split(',').map(w => w.trim()).filter(w => w !== "").slice(0, TOTAL_CARDS);
+            const questionWords = currentPresetQs.slice(0, storyWords.length);
+            
+            const pink = document.querySelectorAll('#pink-container .word-text');
+            const blue = document.querySelectorAll('#blue-container .word-text');
+            
+            pink.forEach(el => el.textContent = "");
+            blue.forEach(el => el.textContent = "");
+            
+            shuffleArray(storyWords);
+            shuffleArray(questionWords);
+
+            storyWords.forEach((w, i) => pink[i].textContent = w);
+            questionWords.forEach((w, i) => blue[i].textContent = w);
+            
+            document.getElementById('input-container').classList.add('hidden');
+            
+            resetFlips();
+            playSuccessSound();
+            triggerBurst();
+        }
+
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+        }
+
+        function resetFlips() {
+            document.querySelectorAll('.transform-style-3d').forEach(el => el.classList.remove('rotate-y-180'));
+        }
+
+        function resetGame() {
+            document.getElementById('input-container').classList.remove('hidden');
+            resetFlips();
+        }
+
+        function previewImage(e) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.getElementById('book-cover');
+                img.src = event.target.result;
+                img.classList.remove('hidden');
+                document.getElementById('upload-placeholder').classList.add('hidden');
+                document.getElementById('remove-img-btn').classList.remove('hidden');
+            };
+            if(e.target.files[0]) reader.readAsDataURL(e.target.files[0]);
+        }
+
+        function removeImage() {
+            document.getElementById('book-cover').classList.add('hidden');
+            document.getElementById('book-cover').src = '#';
+            document.getElementById('upload-placeholder').classList.remove('hidden');
+            document.getElementById('remove-img-btn').classList.add('hidden');
+            document.getElementById('image-upload').value = '';
+        }
+
+        /* -------------------------------------
+           음성 인식 (STT) 기능
+        ------------------------------------- */
+        let isRecording = false;
+        let recognition;
+
+        function initSTT() {
+            window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (window.SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.continuous = true;
+                recognition.interimResults = true;
+                recognition.lang = 'ko-KR';
+
+                recognition.onstart = function() {
+                    isRecording = true;
+                    const micBtn = document.getElementById('mic-btn');
+                    micBtn.classList.replace('bg-rose-400', 'bg-red-600');
+                    micBtn.classList.replace('hover:bg-rose-500', 'hover:bg-red-700');
+                    micBtn.classList.add('animate-pulse');
+                    document.getElementById('stt-result').setAttribute('placeholder', "듣고 있어요...");
+                };
+
+                recognition.onresult = function(event) {
+                    let finalTranscript = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            finalTranscript += event.results[i][0].transcript;
+                        }
+                    }
+                    const sttInput = document.getElementById('stt-result');
+                    if(finalTranscript) {
+                        const currentText = sttInput.innerText.trim();
+                        sttInput.innerText = (currentText ? currentText + ' ' : '') + finalTranscript.trim();
+                        sttInput.scrollTop = sttInput.scrollHeight;
+                    }
+                };
+
+                recognition.onerror = function(event) {
+                    console.error("음성 인식 오류:", event.error);
+                    stopMic();
+                };
+
+                recognition.onend = function() { stopMic(); };
+            }
+        }
+
+        function toggleMic() {
+            if (!recognition) {
+                showAlert("이 브라우저에서는 마이크 기능을 지원하지 않아요. (크롬 브라우저를 사용해주세요)");
+                return;
+            }
+            if (isRecording) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        }
+
+        function stopMic() {
+            isRecording = false;
+            const micBtn = document.getElementById('mic-btn');
+            micBtn.classList.replace('bg-red-600', 'bg-rose-400');
+            micBtn.classList.replace('hover:bg-red-700', 'hover:bg-rose-500');
+            micBtn.classList.remove('animate-pulse');
+            document.getElementById('stt-result').setAttribute('placeholder', "아이들의 이야기를 기록해보세요...");
+        }
+
+        /* -------------------------------------
+           화면 캡처 저장 기능 (html2canvas)
+        ------------------------------------- */
+        function captureScreen() {
+            const captureArea = document.getElementById('capture-area');
+            // CSS를 통한 높이 확장 및 3D 회전 무력화 클래스 추가
+            captureArea.classList.add('capture-mode');
+            
+            setTimeout(() => {
+                html2canvas(captureArea, {
+                    scale: 2, 
+                    backgroundColor: "#FFFDF6",
+                    useCORS: true
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = '동화_질문_만들기.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    captureArea.classList.remove('capture-mode');
+                }).catch(err => {
+                    console.error("화면 저장 실패", err);
+                    showAlert("화면 저장에 실패했습니다.");
+                    captureArea.classList.remove('capture-mode');
+                });
+            }, 300); // 렌더링 안정화를 위해 300ms 딜레이
+        }
+
+        /* --- 폭죽(Confetti) --- */
+        let canvas, ctx, confettiActive = false;
+        const colors = ['#FFC107', '#E91E63', '#00BCD4', '#8BC34A', '#FF5722', '#9C27B0'];
+        const confettiArr = [];
+
+        function initConfetti() {
+            canvas = document.getElementById('confetti-canvas');
+            ctx = canvas.getContext('2d');
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+        }
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+
+        function triggerBurst() {
+            for (let i = 0; i < 50; i++) {
+                confettiArr.push({
+                    x: canvas.width / 2,
+                    y: canvas.height + 20,
+                    vx: (Math.random() - 0.5) * 12,
+                    vy: -Math.random() * 12 - 5,
+                    size: Math.random() * 8 + 6,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    rot: Math.random() * 360,
+                    rotSpeed: (Math.random() - 0.5) * 10
+                });
+            }
+            if (!confettiActive) {
+                confettiActive = true;
+                updateConfetti();
+            }
+        }
+
+        function updateConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let i = confettiArr.length - 1; i >= 0; i--) {
+                const p = confettiArr[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.35; 
+                p.vx *= 0.98; 
+                p.rot += p.rotSpeed;
+
+                ctx.save();
+                ctx.translate(p.x, p.y);
+                ctx.rotate(p.rot * Math.PI / 180);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size);
+                ctx.restore();
+
+                if (p.y > canvas.height + 20) {
+                    confettiArr.splice(i, 1);
+                }
+            }
+
+            if (confettiArr.length > 0) {
+                requestAnimationFrame(updateConfetti);
+            } else {
+                confettiActive = false;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        // 초기화
+        window.onload = () => {
+            createCards('pink-container', 'btn-pink');
+            createCards('blue-container', 'btn-blue');
+            loadPreset();
+            initSTT();
+            initConfetti();
+        };
+    </script>
+</body>
+</html>
